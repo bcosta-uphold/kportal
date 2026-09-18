@@ -26,16 +26,27 @@ type ForwardStatus struct {
 // TableUI manages the terminal table display
 type TableUI struct {
 	forwards map[string]*ForwardStatus
+	columns  []ResolvedColumn
 	mu       sync.RWMutex
 	verbose  bool
 }
 
-// NewTableUI creates a new table UI manager
-func NewTableUI(verbose bool) *TableUI {
+// NewTableUI creates a new table UI manager. cfg may be nil, in which case
+// the built-in default column set and order is used.
+func NewTableUI(verbose bool, cfg *config.Config) *TableUI {
 	return &TableUI{
 		forwards: make(map[string]*ForwardStatus),
 		verbose:  verbose,
+		columns:  ResolveColumns(cfg),
 	}
+}
+
+// SetColumns updates the table's column set and order, e.g. after a config
+// hot-reload.
+func (t *TableUI) SetColumns(cfg *config.Config) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.columns = ResolveColumns(cfg)
 }
 
 // AddForward registers a new forward for display
@@ -97,8 +108,7 @@ func (t *TableUI) Render() {
 	fmt.Println(strings.Repeat("=", 130))
 
 	// Table header
-	fmt.Printf("%-15s %-18s %-25s %-10s %-25s %-12s %-12s %-12s\n",
-		"CONTEXT", "NAMESPACE", "ALIAS", "TYPE", "RESOURCE", "REMOTE PORT", "LOCAL PORT", "STATUS")
+	fmt.Println(renderPlainHeaderRow(t.columns))
 	fmt.Println(strings.Repeat("-", 130))
 
 	// Sort forwards by local port for consistent display
@@ -122,25 +132,7 @@ func (t *TableUI) Render() {
 
 	// Print each forward
 	for _, entry := range entries {
-		fwd := entry.fwd
-
-		// Truncate long names
-		alias := truncate(fwd.Alias, 25)
-		resource := truncate(fwd.Resource, 25)
-
-		// Color code status with indicator
-		statusStr := formatStatusWithIndicator(fwd.Status)
-
-		// Print the row
-		fmt.Printf("  %-15s %-18s %-25s %-10s %-25s %-12d %-12d %s\n",
-			fwd.Context,
-			fwd.Namespace,
-			alias,
-			fwd.Type,
-			resource,
-			fwd.RemotePort,
-			fwd.LocalPort,
-			statusStr)
+		fmt.Println(renderPlainDataRow(t.columns, entry.fwd))
 	}
 
 	fmt.Println(strings.Repeat("=", 130))
@@ -162,8 +154,7 @@ func (t *TableUI) RenderInitial() {
 	fmt.Println(strings.Repeat("=", 130))
 
 	// Table header
-	fmt.Printf("%-15s %-18s %-25s %-10s %-25s %-12s %-12s %-12s\n",
-		"CONTEXT", "NAMESPACE", "ALIAS", "TYPE", "RESOURCE", "REMOTE PORT", "LOCAL PORT", "STATUS")
+	fmt.Println(renderPlainHeaderRow(t.columns))
 	fmt.Println(strings.Repeat("-", 130))
 
 	// Print message if no forwards yet
@@ -187,6 +178,55 @@ func (t *TableUI) Remove(id string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.forwards, id)
+}
+
+// plainColumnPadWidth returns the fixed column width used to pad the
+// non-interactive (plain) table's text columns, falling back to sensible
+// defaults for the numeric columns when no explicit width was configured.
+func plainColumnPadWidth(col ResolvedColumn) int {
+	if col.Width > 0 {
+		return col.Width
+	}
+
+	switch col.Key {
+	case ColKeyRemote, ColKeyLocal:
+		return 12
+	default:
+		return 0
+	}
+}
+
+// renderPlainHeaderRow renders the header row for the non-interactive table,
+// padding every column except the last (which may hold color codes).
+func renderPlainHeaderRow(cols []ResolvedColumn) string {
+	var b strings.Builder
+	for i, col := range cols {
+		if i == len(cols)-1 {
+			b.WriteString(col.Header)
+			continue
+		}
+		b.WriteString(fmt.Sprintf("%-*s ", plainColumnPadWidth(col), col.Header))
+	}
+	return b.String()
+}
+
+// renderPlainDataRow renders a single forward's data row for the
+// non-interactive table, matching renderPlainHeaderRow's column layout.
+func renderPlainDataRow(cols []ResolvedColumn, fwd *ForwardStatus) string {
+	var b strings.Builder
+	b.WriteString("  ")
+	for i, col := range cols {
+		if i == len(cols)-1 {
+			if col.Key == ColKeyStatus {
+				b.WriteString(formatStatusWithIndicator(fwd.Status))
+			} else {
+				b.WriteString(columnValue(col, fwd))
+			}
+			continue
+		}
+		b.WriteString(fmt.Sprintf("%-*s ", plainColumnPadWidth(col), columnValue(col, fwd)))
+	}
+	return b.String()
 }
 
 // hyperlink wraps text in an OSC 8 terminal hyperlink escape sequence.

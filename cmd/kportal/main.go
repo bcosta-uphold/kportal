@@ -497,7 +497,7 @@ func runHeadless(ctx context.Context, opts runOptions, cfg *config.Config, deps 
 // runVerboseTable runs the simple table UI with periodic redraws and SIGHUP
 // reload, exiting cleanly when ctx is cancelled.
 func runVerboseTable(ctx context.Context, opts runOptions, cfg *config.Config, deps *runtimeDeps, validator *config.Validator, stderr io.Writer) int {
-	tableUI := ui.NewTableUI(opts.verbose)
+	tableUI := ui.NewTableUI(opts.verbose, cfg)
 	deps.manager.SetStatusUI(tableUI)
 
 	// Background update check (best effort).
@@ -539,6 +539,7 @@ func runVerboseTable(ctx context.Context, opts runOptions, cfg *config.Config, d
 	}()
 
 	watcher, watchErr := config.NewWatcher(opts.configFile, func(newCfg *config.Config) error {
+		tableUI.SetColumns(newCfg)
 		return deps.manager.Reload(newCfg)
 	}, opts.verbose)
 	watcherActive := false
@@ -574,6 +575,7 @@ func runVerboseTable(ctx context.Context, opts runOptions, cfg *config.Config, d
 				log.Print(config.FormatValidationErrors(errs))
 				continue
 			}
+			tableUI.SetColumns(newCfg)
 			if reloadErr := deps.manager.Reload(newCfg); reloadErr != nil {
 				log.Printf("Failed to reload: %v", reloadErr)
 			}
@@ -590,6 +592,7 @@ func runInteractive(ctx context.Context, opts runOptions, cfg *config.Config, de
 			_ = deps.manager.DisableForward(id)
 		}
 	}, appVersion)
+	bubbleTeaUI.SetColumns(cfg)
 	bubbleTeaUI.SetWizardDependencies(deps.discovery, deps.mutator, opts.configFile)
 	bubbleTeaUI.SetHTTPLogSubscriber(makeHTTPLogSubscriber(deps.manager))
 
@@ -611,6 +614,7 @@ func runInteractive(ctx context.Context, opts runOptions, cfg *config.Config, de
 
 	var watcher *config.Watcher
 	watcher, err := config.NewWatcher(opts.configFile, func(newCfg *config.Config) error {
+		bubbleTeaUI.SetColumns(newCfg)
 		return deps.manager.Reload(newCfg)
 	}, opts.verbose)
 	if err == nil {
