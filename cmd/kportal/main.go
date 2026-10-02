@@ -539,8 +539,11 @@ func runVerboseTable(ctx context.Context, opts runOptions, cfg *config.Config, d
 	}()
 
 	watcher, watchErr := config.NewWatcher(opts.configFile, func(newCfg *config.Config) error {
+		if err := deps.manager.Reload(newCfg); err != nil {
+			return err
+		}
 		tableUI.SetColumns(newCfg)
-		return deps.manager.Reload(newCfg)
+		return nil
 	}, opts.verbose)
 	watcherActive := false
 	if watchErr != nil {
@@ -575,10 +578,11 @@ func runVerboseTable(ctx context.Context, opts runOptions, cfg *config.Config, d
 				log.Print(config.FormatValidationErrors(errs))
 				continue
 			}
-			tableUI.SetColumns(newCfg)
 			if reloadErr := deps.manager.Reload(newCfg); reloadErr != nil {
 				log.Printf("Failed to reload: %v", reloadErr)
+				continue
 			}
+			tableUI.SetColumns(newCfg)
 		}
 	}
 }
@@ -614,8 +618,11 @@ func runInteractive(ctx context.Context, opts runOptions, cfg *config.Config, de
 
 	var watcher *config.Watcher
 	watcher, err := config.NewWatcher(opts.configFile, func(newCfg *config.Config) error {
+		if err := deps.manager.Reload(newCfg); err != nil {
+			return err
+		}
 		bubbleTeaUI.SetColumns(newCfg)
-		return deps.manager.Reload(newCfg)
+		return nil
 	}, opts.verbose)
 	if err == nil {
 		watcher.Start()

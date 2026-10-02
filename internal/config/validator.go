@@ -511,6 +511,9 @@ func (v *Validator) validateMDNS(cfg *Config) []ValidationError {
 	return errs
 }
 
+// maxTableColumnWidth caps tui.columns width so a typo cannot blow up the table.
+const maxTableColumnWidth = 200
+
 // validTableColumnNames are the recognized forwards-table column identifiers.
 var validTableColumnNames = map[string]bool{
 	"context":   true,
@@ -564,6 +567,11 @@ func (v *Validator) validateTUI(cfg *Config) []ValidationError {
 			errs = append(errs, ValidationError{
 				Field:   fmt.Sprintf("tui.columns[%d].width", i),
 				Message: fmt.Sprintf("Column '%s' width cannot be negative", name),
+			})
+		} else if col.Width > maxTableColumnWidth {
+			errs = append(errs, ValidationError{
+				Field:   fmt.Sprintf("tui.columns[%d].width", i),
+				Message: fmt.Sprintf("Column '%s' width cannot exceed %d", name, maxTableColumnWidth),
 			})
 		}
 	}

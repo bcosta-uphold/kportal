@@ -2098,7 +2098,7 @@ func TestValidator_ValidateTUI(t *testing.T) {
 				Contexts: baseContexts,
 				TUI:      &TUISpec{Columns: []TableColumn{{Name: "bogus"}}},
 			},
-			expectErrors: true,
+			expectErrors:  true,
 			errorContains: "Invalid column name",
 		},
 		{
@@ -2107,7 +2107,7 @@ func TestValidator_ValidateTUI(t *testing.T) {
 				Contexts: baseContexts,
 				TUI:      &TUISpec{Columns: []TableColumn{{Name: ""}}},
 			},
-			expectErrors: true,
+			expectErrors:  true,
 			errorContains: "cannot be empty",
 		},
 		{
@@ -2116,7 +2116,7 @@ func TestValidator_ValidateTUI(t *testing.T) {
 				Contexts: baseContexts,
 				TUI:      &TUISpec{Columns: []TableColumn{{Name: "alias"}, {Name: "Alias"}}},
 			},
-			expectErrors: true,
+			expectErrors:  true,
 			errorContains: "Duplicate column",
 		},
 		{
@@ -2125,8 +2125,42 @@ func TestValidator_ValidateTUI(t *testing.T) {
 				Contexts: baseContexts,
 				TUI:      &TUISpec{Columns: []TableColumn{{Name: "alias", Width: -1}}},
 			},
-			expectErrors: true,
+			expectErrors:  true,
 			errorContains: "cannot be negative",
+		},
+		{
+			name: "width at cap",
+			config: &Config{
+				Contexts: baseContexts,
+				TUI:      &TUISpec{Columns: []TableColumn{{Name: "alias", Width: 200}}},
+			},
+			expectErrors: false,
+		},
+		{
+			name: "width above cap",
+			config: &Config{
+				Contexts: baseContexts,
+				TUI:      &TUISpec{Columns: []TableColumn{{Name: "alias", Width: 201}}},
+			},
+			expectErrors:  true,
+			errorContains: "cannot exceed 200",
+		},
+		{
+			name: "name is case and whitespace insensitive",
+			config: &Config{
+				Contexts: baseContexts,
+				TUI:      &TUISpec{Columns: []TableColumn{{Name: " Alias "}, {Name: "STATUS"}}},
+			},
+			expectErrors: false,
+		},
+		{
+			name: "padded duplicate is detected",
+			config: &Config{
+				Contexts: baseContexts,
+				TUI:      &TUISpec{Columns: []TableColumn{{Name: "alias"}, {Name: " Alias "}}},
+			},
+			expectErrors:  true,
+			errorContains: "Duplicate column",
 		},
 	}
 

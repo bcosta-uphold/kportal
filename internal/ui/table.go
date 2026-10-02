@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -37,7 +39,7 @@ func NewTableUI(verbose bool, cfg *config.Config) *TableUI {
 	return &TableUI{
 		forwards: make(map[string]*ForwardStatus),
 		verbose:  verbose,
-		columns:  ResolveColumns(cfg),
+		columns:  ResolvePlainColumns(cfg),
 	}
 }
 
@@ -46,7 +48,7 @@ func NewTableUI(verbose bool, cfg *config.Config) *TableUI {
 func (t *TableUI) SetColumns(cfg *config.Config) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.columns = ResolveColumns(cfg)
+	t.columns = ResolvePlainColumns(cfg)
 }
 
 // AddForward registers a new forward for display
@@ -105,11 +107,11 @@ func (t *TableUI) Render() {
 
 	// Print header
 	fmt.Println("kportal - Port Forwarding Status")
-	fmt.Println(strings.Repeat("=", 130))
+	fmt.Println(plainRule("=", t.columns))
 
 	// Table header
 	fmt.Println(renderPlainHeaderRow(t.columns))
-	fmt.Println(strings.Repeat("-", 130))
+	fmt.Println(plainRule("-", t.columns))
 
 	// Sort forwards by local port for consistent display
 	type sortEntry struct {
@@ -135,7 +137,7 @@ func (t *TableUI) Render() {
 		fmt.Println(renderPlainDataRow(t.columns, entry.fwd))
 	}
 
-	fmt.Println(strings.Repeat("=", 130))
+	fmt.Println(plainRule("=", t.columns))
 	fmt.Printf("Total forwards: %d | Press Ctrl+C to stop\n", len(t.forwards))
 
 	// In verbose mode, add a newline to separate from logs
@@ -151,18 +153,18 @@ func (t *TableUI) RenderInitial() {
 
 	// Print header
 	fmt.Println("\nkportal - Port Forwarding Status")
-	fmt.Println(strings.Repeat("=", 130))
+	fmt.Println(plainRule("=", t.columns))
 
 	// Table header
 	fmt.Println(renderPlainHeaderRow(t.columns))
-	fmt.Println(strings.Repeat("-", 130))
+	fmt.Println(plainRule("-", t.columns))
 
 	// Print message if no forwards yet
 	if len(t.forwards) == 0 {
 		fmt.Println("Initializing port forwards...")
 	}
 
-	fmt.Println(strings.Repeat("=", 130))
+	fmt.Println(plainRule("=", t.columns))
 	fmt.Println()
 }
 
@@ -180,53 +182,63 @@ func (t *TableUI) Remove(id string) {
 	delete(t.forwards, id)
 }
 
-// plainColumnPadWidth returns the fixed column width used to pad the
-// non-interactive (plain) table's text columns, falling back to sensible
-// defaults for the numeric columns when no explicit width was configured.
-func plainColumnPadWidth(col ResolvedColumn) int {
-	if col.Width > 0 {
-		return col.Width
-	}
+// legacyPlainRuleWidth is the rule width the default plain layout always used.
+const legacyPlainRuleWidth = 130
 
-	switch col.Key {
-	case ColKeyRemote, ColKeyLocal:
-		return 12
-	default:
-		return 0
-	}
+// ansiSeq matches the SGR colour sequences emitted by formatStatusWithIndicator.
+var ansiSeq = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// visibleWidth returns the number of runes a terminal shows for s.
+func visibleWidth(s string) int {
+	return utf8.RuneCountInString(ansiSeq.ReplaceAllString(s, ""))
 }
 
-// renderPlainHeaderRow renders the header row for the non-interactive table,
-// padding every column except the last (which may hold color codes).
+// padVisible right-pads s with spaces to width visible runes.
+func padVisible(s string, width int) string {
+	if n := width - visibleWidth(s); n > 0 {
+		return s + strings.Repeat(" ", n)
+	}
+	return s
+}
+
+// plainRule returns a rule line as wide as the rendered columns: the sum of
+// their widths plus one separator between each pair.
+func plainRule(ch string, cols []ResolvedColumn) string {
+	if slices.Equal(cols, plainDefaultColumns) {
+		return strings.Repeat(ch, legacyPlainRuleWidth)
+	}
+	width := len(cols) - 1
+	for _, col := range cols {
+		width += col.Width
+	}
+	return strings.Repeat(ch, max(width, 0))
+}
+
+// renderPlainHeaderRow renders the header row for the plain table, padding
+// every column to its width.
 func renderPlainHeaderRow(cols []ResolvedColumn) string {
-	var b strings.Builder
+	cells := make([]string, len(cols))
 	for i, col := range cols {
-		if i == len(cols)-1 {
-			b.WriteString(col.Header)
-			continue
-		}
-		b.WriteString(fmt.Sprintf("%-*s ", plainColumnPadWidth(col), col.Header))
+		cells[i] = padVisible(col.Header, col.Width)
 	}
-	return b.String()
+	return strings.Join(cells, " ")
 }
 
-// renderPlainDataRow renders a single forward's data row for the
-// non-interactive table, matching renderPlainHeaderRow's column layout.
+// renderPlainDataRow renders a single forward's data row for the plain table,
+// padding every column but the last so row cells line up with the header.
 func renderPlainDataRow(cols []ResolvedColumn, fwd *ForwardStatus) string {
-	var b strings.Builder
-	b.WriteString("  ")
+	cells := make([]string, len(cols))
 	for i, col := range cols {
-		if i == len(cols)-1 {
-			if col.Key == ColKeyStatus {
-				b.WriteString(formatStatusWithIndicator(fwd.Status))
-			} else {
-				b.WriteString(columnValue(col, fwd))
-			}
-			continue
+		if col.Key == ColKeyStatus {
+			cells[i] = formatStatusWithIndicator(fwd.Status)
+		} else {
+			cells[i] = columnValue(col, fwd)
 		}
-		b.WriteString(fmt.Sprintf("%-*s ", plainColumnPadWidth(col), columnValue(col, fwd)))
+		if i < len(cols)-1 {
+			cells[i] = padVisible(cells[i], col.Width)
+		}
 	}
-	return b.String()
+	return "  " + strings.Join(cells, " ")
 }
 
 // hyperlink wraps text in an OSC 8 terminal hyperlink escape sequence.

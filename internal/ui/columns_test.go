@@ -9,10 +9,10 @@ import (
 
 func TestResolveColumns_Default(t *testing.T) {
 	cols := ResolveColumns(nil)
-	assert.Equal(t, defaultColumns, cols)
+	assert.Equal(t, tuiDefaultColumns, cols)
 
 	cols = ResolveColumns(&config.Config{})
-	assert.Equal(t, defaultColumns, cols)
+	assert.Equal(t, tuiDefaultColumns, cols)
 }
 
 func TestResolveColumns_CustomOrderAndVisibility(t *testing.T) {
@@ -58,7 +58,7 @@ func TestResolveColumns_UnknownNamesSkipped(t *testing.T) {
 	}
 
 	// All entries invalid -> fall back to defaults.
-	assert.Equal(t, defaultColumns, ResolveColumns(cfg))
+	assert.Equal(t, tuiDefaultColumns, ResolveColumns(cfg))
 }
 
 func TestColumnValue(t *testing.T) {
@@ -73,7 +73,7 @@ func TestColumnValue(t *testing.T) {
 		Status:     "Active",
 	}
 
-	assert.Equal(t, "prod", columnValue(ResolvedColumn{Key: ColKeyContext, Width: 10}, fwd))
+	assert.Equal(t, "prod", columnValue(ResolvedColumn{Key: ColKeyContext, Max: 10}, fwd))
 	assert.Equal(t, "8080", columnValue(ResolvedColumn{Key: ColKeyRemote}, fwd))
 	assert.Equal(t, "8081", columnValue(ResolvedColumn{Key: ColKeyLocal}, fwd))
 	assert.Equal(t, "Active", columnValue(ResolvedColumn{Key: ColKeyStatus}, fwd))
@@ -83,4 +83,25 @@ func TestColumnIndex(t *testing.T) {
 	cols := []ResolvedColumn{{Key: ColKeyContext}, {Key: ColKeyStatus}}
 	assert.Equal(t, 1, columnIndex(cols, ColKeyStatus))
 	assert.Equal(t, -1, columnIndex(cols, ColKeyLocal))
+}
+
+func TestResolveColumns_DefaultIsCopy(t *testing.T) {
+	cols := ResolveColumns(nil)
+	cols[0].Header = "MUTATED"
+
+	assert.Equal(t, "CONTEXT", ResolveColumns(nil)[0].Header)
+	assert.Equal(t, "CONTEXT", tuiDefaultColumns[0].Header)
+}
+
+func TestResolvePlainColumns_LegacyDefaults(t *testing.T) {
+	cols := ResolvePlainColumns(nil)
+
+	assert.Equal(t, plainDefaultColumns, cols)
+	assert.Equal(t, "REMOTE PORT", cols[5].Header)
+	assert.Equal(t, 15, cols[0].Width)
+
+	custom := ResolvePlainColumns(&config.Config{TUI: &config.TUISpec{Columns: []config.TableColumn{{Name: " Status "}, {Name: "alias", Width: 7}}}})
+	assert.Equal(t, plainStatusWidth, custom[0].Width)
+	assert.Equal(t, 7, custom[1].Width)
+	assert.Equal(t, 7, custom[1].Max)
 }
